@@ -9,7 +9,7 @@ import pandas as pd
 # Nodes = intersections
 nodes = ["A", "B", "C", "D", "E", "F"]
 
-# Edges = roads with distance
+
 edges = {
     ("A", "B"): 10,
     ("B", "C"): 8,
@@ -24,8 +24,8 @@ edges = {
 # --------------------------
 # Simulation parameters
 # --------------------------
-time_steps = 50          # e.g., 50 minutes
-max_cars_per_step = 5    # new cars spawning per step
+time_steps = 50          
+max_cars_per_step = 5    
 
 data = []
 
@@ -48,7 +48,7 @@ for t in range(time_steps):
             "congestion": congestion
         })
 
-# Save to CSV
+
 df = pd.DataFrame(data)
 df.to_csv("traffic_dataset.csv", index=False)
 print("Dataset generated: traffic_dataset.csv")
