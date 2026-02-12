@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Smart Traffic Routing - Clear Visual Paths</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <style>
+        html, body { 
+            height: 100%; 
+            margin: 0; 
+            padding: 0; 
+            font-family: Arial, sans-serif;
+        }
+        
+        .controls {
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom: 2px solid #5568d3;
+        }
+        
+        button {
+            padding: 12px 24px;
+            margin: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        #startBtn {
+            background: #4CAF50;
+            color: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        
+        #startBtn:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+        
+        #resetBtn {
+            background: #f44336;
+            color: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        
+        #resetBtn:hover {
+            background: #da190b;
+            transform: translateY(-2px);
+        }
+        
+        #map { 
+            height: calc(100vh - 120px); 
+            width: 100%; 
+        }
+        
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 18px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .legend-color {
+            width: 50px;
+            height: 8px;
+            margin-right: 12px;
+            border-radius: 4px;
+        }
+        
+        .info-box {
+            display: inline-block;
+            margin-left: 20px;
+            color: white;
+            font-size: 14px;
+            background: rgba(255,255,255,0.2);
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+
+        .route-info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: white;
+            padding: 18px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            max-width: 380px;
+            max-height: 520px;
+            overflow-y: auto;
+        }
+
+        .segment-status {
+            margin: 10px 0;
+            padding: 14px;
+            border-radius: 6px;
+            background: #f9f9f9;
+            border-left: 5px solid #ddd;
+        }
+
+        .status-clear {
+            border-left-color: #4CAF50;
+            background: #e8f5e9;
+        }
+
+        .status-rerouted {
+            border-left-color: #FF6F00;
+            background: #fff3e0;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .processing {
+            animation: pulse 1.5s infinite;
+        }
+
+        .route-path-indicator {
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-top: 6px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="controls">
+    <h2 style="margin: 0 0 10px 0;">🚗 Smart Traffic Routing - Clear Path Visualization</h2>
+    <button id="startBtn">▶ Start Simulation</button>
+    <button id="resetBtn">🔄 Reset Map</button>
+    <span class="info-box">👆 Click on map to add route points (minimum 2 points)</span>
+</div>
+
+<div id="map"></div>
+
+<div id="routeInfo" class="route-info" style="display: none;">
+    <h4 style="margin: 0 0 12px 0; border-bottom: 2px solid #667eea; padding-bottom: 5px;">📊 Route Analysis</h4>
+    <div id="routeDetails"></div>
+</div>
+
+<div class="legend">
+    <h4 style="margin: 0 0 15px 0; color: #333;">🗺️ Route Legend</h4>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #4CAF50;"></div>
+        <span><strong>Green</strong> - Clear Route (Used)</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #FF1744; opacity: 0.3;"></div>
+        <span><strong>Red Faded</strong> - Blocked (NOT Used)</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #FF6F00;"></div>
+        <span><strong>Orange</strong> - Detour (Used Instead)</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #00BCD4;"></div>
+        <span>● Detour Waypoint</span>
+    </div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+window.onload = function() {
+    let map = L.map("map").setView([10.0, 76.0], 13);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let nodes = [];
+    let markers = [];
+    let allLines = [];
+    const CONGESTION_THRESHOLD = 0.5;
+
+    // Add node on map click
+    map.on("click", function(e) {
+        let marker = L.marker(e.latlng, {
+            icon: L.divIcon({
+                className: 'custom-marker',
+                html: `<div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 4px solid white; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.5); font-size: 18px;">${nodes.length + 1}</div>`,
+                iconSize: [40, 40]
+            })
+        }).addTo(map);
+        
+        markers.push(marker);
+        nodes.push([e.latlng.lat, e.latlng.lng]);
+        
+        if (nodes.length > 1) {
+            let line = L.polyline([nodes[nodes.length - 2], nodes[nodes.length - 1]], {
+                color: '#999',
+                weight: 2,
+                opacity: 0.4,
+                dashArray: '8, 8'
+            }).addTo(map);
+            allLines.push(line);
+        }
+    });
+
+    function randomTrafficLevel() {
+        return Math.random();
+    }
+
+    // Get route from OSRM
+    async function getRoute(start, end, waypoints = []) {
+        try {
+            let coords;
+            if (waypoints.length > 0) {
+                coords = [start, ...waypoints, end].map(p => `${p[1]},${p[0]}`).join(';');
+            } else {
+                coords = `${start[1]},${start[0]};${end[1]},${end[0]}`;
+            }
+            
+            let url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+            
+            let res = await fetch(url);
+            let data = await res.json();
+            
+            if (data.routes && data.routes[0]) {
+                return {
+                    coordinates: data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]),
+                    distance: data.routes[0].distance,
+                    duration: data.routes[0].duration
+                };
+            }
+        } catch (err) {
+            console.error("OSRM error:", err);
+        }
+        return null;
+    }
+
+    // Calculate route similarity (0 = completely different, 1 = identical)
+    function calculateRouteSimilarity(route1, route2) {
+        if (!route1 || !route2) return 0;
+        
+        const samples = 30;
+        let similarPoints = 0;
+        const threshold = 0.0005; // ~50 meters
+        
+        for (let i = 0; i < samples; i++) {
+            const idx1 = Math.floor((route1.length - 1) * i / (samples - 1));
+            const point1 = route1[idx1];
+            
+            let minDist = Infinity;
+            for (let j = 0; j < route2.length; j++) {
+                const latDiff = point1[0] - route2[j][0];
+                const lngDiff = point1[1] - route2[j][1];
+                const dist = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
+                if (dist < minDist) minDist = dist;
+            }
+            
+            if (minDist < threshold) similarPoints++;
+        }
+        
+        return similarPoints / samples;
+    }
+
+    // Generate AGGRESSIVE detour waypoints
+    function generateDetourWaypoints(start, end, level = 1) {
+        const latDiff = end[0] - start[0];
+        const lngDiff = end[1] - start[1];
+        
+        // Base offset multiplied by level
+        const baseOffset = 0.02 * level;
+        
+        const strategies = [];
+        
+        // Strategy 1: Single large perpendicular offset (RIGHT)
+        strategies.push({
+            waypoints: [[
+                start[0] + latDiff * 0.5 - lngDiff * baseOffset,
+                start[1] + lngDiff * 0.5 + latDiff * baseOffset
+            ]],
+            name: `Right detour (${level})`
+        });
+        
+        // Strategy 2: Single large perpendicular offset (LEFT)
+        strategies.push({
+            waypoints: [[
+                start[0] + latDiff * 0.5 + lngDiff * baseOffset,
+                start[1] + lngDiff * 0.5 - latDiff * baseOffset
+            ]],
+            name: `Left detour (${level})`
+        });
+        
+        // Strategy 3: Two waypoints - wide arc RIGHT
+        strategies.push({
+            waypoints: [
+                [start[0] + latDiff * 0.33 - lngDiff * baseOffset * 0.8, start[1] + lngDiff * 0.33 + latDiff * baseOffset * 0.8],
+                [start[0] + latDiff * 0.67 - lngDiff * baseOffset * 0.8, start[1] + lngDiff * 0.67 + latDiff * baseOffset * 0.8]
+            ],
+            name: `Arc right (${level})`
+        });
+        
+        // Strategy 4: Two waypoints - wide arc LEFT
+        strategies.push({
+            waypoints: [
+                [start[0] + latDiff * 0.33 + lngDiff * baseOffset * 0.8, start[1] + lngDiff * 0.33 - latDiff * baseOffset * 0.8],
+                [start[0] + latDiff * 0.67 + lngDiff * baseOffset * 0.8, start[1] + lngDiff * 0.67 - latDiff * baseOffset * 0.8]
+            ],
+            name: `Arc left (${level})`
+        });
+        
+        // Strategy 5: Early turn RIGHT
+        strategies.push({
+            waypoints: [[
+                start[0] + latDiff * 0.2 - lngDiff * baseOffset * 1.2,
+                start[1] + lngDiff * 0.2 + latDiff * baseOffset * 1.2
+            ]],
+            name: `Early right (${level})`
+        });
+        
+        // Strategy 6: Early turn LEFT
+        strategies.push({
+            waypoints: [[
+                start[0] + latDiff * 0.2 + lngDiff * baseOffset * 1.2,
+                start[1] + lngDiff * 0.2 - latDiff * baseOffset * 1.2
+            ]],
+            name: `Early left (${level})`
+        });
+        
+        // Strategy 7: Late turn RIGHT
+        strategies.push({
+            waypoints: [[
+                start[0] + latDiff * 0.8 - lngDiff * baseOffset * 1.2,
+                start[1] + lngDiff * 0.8 + latDiff * baseOffset * 1.2
+            ]],
+            name: `Late right (${level})`
+        });
+        
+        // Strategy 8: Late turn LEFT
+        strategies.push({
+            waypoints: [[
+                start[0] + latDiff * 0.8 + lngDiff * baseOffset * 1.2,
+                start[1] + lngDiff * 0.8 - latDiff * baseOffset * 1.2
+            ]],
+            name: `Late left (${level})`
+        });
+        
+        return strategies;
+    }
+
+    // Find best alternative route that's ACTUALLY DIFFERENT
+    async function findAlternativeRoute(start, end, blockedRoute) {
+        console.log('🔍 Finding DIFFERENT route...');
+        
+        let bestRoute = null;
+        let lowestSimilarity = 1.0;
+        
+        // Try 3 levels of increasing detour
+        for (let level = 1; level <= 3; level++) {
+            const strategies = generateDetourWaypoints(start, end, level);
+            
+            for (let strategy of strategies) {
+                const route = await getRoute(start, end, strategy.waypoints);
+                
+                if (route) {
+                    // Calculate how similar this route is to the blocked route
+                    const similarity = calculateRouteSimilarity(route.coordinates, blockedRoute.coordinates);
+                    const distanceRatio = route.distance / blockedRoute.distance;
+                    
+                    console.log(`  ${strategy.name}: ${(similarity * 100).toFixed(0)}% similar, ${((distanceRatio - 1) * 100).toFixed(0)}% longer`);
+                    
+                    // Accept if it's DIFFERENT ENOUGH (< 40% similar) and not TOO long (< 2.5x)
+                    if (similarity < 0.4 && distanceRatio < 2.5) {
+                        if (similarity < lowestSimilarity) {
+                            lowestSimilarity = similarity;
+                            bestRoute = {
+                                ...route,
+                                waypoints: strategy.waypoints,
+                                strategyName: strategy.name,
+                                similarity: similarity
+                            };
+                            console.log(`  ✓ NEW BEST: ${(similarity * 100).toFixed(0)}% similar`);
+                        }
+                    }
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, 150));
+            }
+            
+            // If we found a good route (< 30% similar), stop searching
+            if (bestRoute && lowestSimilarity < 0.3) {
+                console.log(`✅ Found good alternative at level ${level}`);
+                break;
+            }
+        }
+        
+        if (bestRoute) {
+            console.log(`✅ FINAL CHOICE: ${bestRoute.strategyName}, ${(bestRoute.similarity * 100).toFixed(0)}% similar to blocked route`);
+        } else {
+            console.log(`⚠️ Could not find sufficiently different route`);
+        }
+        
+        return bestRoute;
+    }
+
+    // Main simulation
+    async function runSimulation() {
+        allLines.forEach(line => map.removeLayer(line));
+        allLines = [];
+
+        if (nodes.length < 2) {
+            alert("⚠️ Please add at least 2 points to the map");
+            return;
+        }
+
+        document.getElementById('routeInfo').style.display = 'block';
+        let routeDetails = '<div style="margin-bottom: 12px; padding: 12px; background: #667eea; color: white; border-radius: 6px; font-size: 14px; font-weight: bold;">🚦 Simulation Progress</div>';
+        document.getElementById('routeDetails').innerHTML = routeDetails;
+
+        for (let i = 0; i < nodes.length - 1; i++) {
+            let start = nodes[i];
+            let end = nodes[i + 1];
+
+            console.log(`\n${'='.repeat(70)}`);
+            console.log(`SEGMENT ${i + 1}: Node ${i + 1} → Node ${i + 2}`);
+            console.log('='.repeat(70));
+
+            routeDetails += `<div class="segment-status processing" id="segment-${i}">
+                <strong>Segment ${i + 1}:</strong> Node ${i + 1} → Node ${i + 2}<br>
+                <span style="color: #666;">⏳ Analyzing traffic...</span>
+            </div>`;
+            document.getElementById('routeDetails').innerHTML = routeDetails;
+
+            // Get direct route
+            const directRoute = await getRoute(start, end);
+            if (!directRoute) {
+                console.log('❌ No route available');
+                document.getElementById(`segment-${i}`).innerHTML = `
+                    <strong>Segment ${i + 1}:</strong> Node ${i + 1} → Node ${i + 2}<br>
+                    <span style="color: #999;">❌ No route found</span>
+                `;
+                continue;
+            }
+
+            const congestion = randomTrafficLevel();
+            console.log(`Traffic level: ${(congestion * 100).toFixed(0)}%`);
+
+            if (congestion > CONGESTION_THRESHOLD) {
+                // CONGESTION! MUST FIND ALTERNATIVE!
+                console.log('🚨 CONGESTION DETECTED - FINDING ALTERNATIVE...');
+                
+                // Draw BLOCKED route (very faded red with thick dashes)
+                let blockedLine = L.polyline(directRoute.coordinates, {
+                    color: '#FF1744',
+                    weight: 12,
+                    opacity: 0.25,
+                    dashArray: '25, 20',
+                    lineCap: 'round'
+                }).addTo(map);
+                
+                blockedLine.bindPopup(`
+                    <div style="padding: 8px;">
+                        <strong style="color: #FF1744; font-size: 16px;">🚫 BLOCKED</strong><br>
+                        <strong>Segment ${i + 1}</strong><br>
+                        Traffic: <span style="color: #FF1744; font-weight: bold;">${(congestion * 100).toFixed(0)}%</span><br>
+                        <em style="color: #666;">This route was NOT used</em>
+                    </div>
+                `);
+                allLines.push(blockedLine);
+
+                // Find alternative
+                const altRoute = await findAlternativeRoute(start, end, directRoute);
+
+                if (altRoute) {
+                    // SUCCESS! Draw DETOUR route in BRIGHT ORANGE
+                    console.log(`✅ Using alternative route!`);
+                    
+                    // Draw waypoint markers
+                    altRoute.waypoints.forEach((wp, idx) => {
+                        let wpMarker = L.circleMarker(wp, {
+                            radius: 10,
+                            fillColor: "#00BCD4",
+                            color: "#fff",
+                            weight: 3,
+                            opacity: 1,
+                            fillOpacity: 1
+                        }).addTo(map);
+                        wpMarker.bindPopup(`🔄 Detour Point ${idx + 1}`);
+                        markers.push(wpMarker);
+                    });
+
+                    // Draw DETOUR route - BRIGHT ORANGE, THICK
+                    let altLine = L.polyline(altRoute.coordinates, {
+                        color: '#FF6F00',
+                        weight: 10,
+                        opacity: 1,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }).addTo(map);
+                    
+                    const extraDist = ((altRoute.distance - directRoute.distance) / 1000).toFixed(2);
+                    const extraTime = ((altRoute.duration - directRoute.duration) / 60).toFixed(1);
+                    const distIncrease = ((altRoute.distance / directRoute.distance - 1) * 100).toFixed(0);
+                    
+                    altLine.bindPopup(`
+                        <div style="padding: 8px;">
+                            <strong style="color: #FF6F00; font-size: 16px;">✅ DETOUR ROUTE</strong><br>
+                            <strong>Segment ${i + 1}</strong> (USED THIS PATH)<br>
+                            Strategy: ${altRoute.strategyName}<br>
+                            Similarity to blocked: ${(altRoute.similarity * 100).toFixed(0)}%<br>
+                            Distance: ${(altRoute.distance / 1000).toFixed(2)} km<br>
+                            Extra: +${extraDist} km (+${distIncrease}%)<br>
+                            Time: +${extraTime} min<br>
+                            <strong style="color: #4CAF50;">✓ Using different roads!</strong>
+                        </div>
+                    `);
+                    allLines.push(altLine);
+
+                    document.getElementById(`segment-${i}`).className = 'segment-status status-rerouted';
+                    document.getElementById(`segment-${i}`).innerHTML = `
+                        <strong>Segment ${i + 1}:</strong> Node ${i + 1} → Node ${i + 2}<br>
+                        <span style="color: #FF1744; font-weight: bold;">⚠️ Congested (${(congestion * 100).toFixed(0)}%)</span><br>
+                        <div style="margin-top: 8px; padding-top: 8px; border-top: 2px solid #FF6F00;">
+                            <div class="route-path-indicator" style="background: #FF6F00; color: white;">
+                                🔄 DETOUR TAKEN
+                            </div><br>
+                            <small style="color: #666;">
+                                ${altRoute.strategyName}<br>
+                                ${(altRoute.similarity * 100).toFixed(0)}% similar to blocked route<br>
+                                +${extraDist} km, +${extraTime} min
+                            </small>
+                        </div>
+                    `;
+
+                } else {
+                    console.log('⚠️ No alternative available');
+                    
+                    document.getElementById(`segment-${i}`).className = 'segment-status status-rerouted';
+                    document.getElementById(`segment-${i}`).innerHTML = `
+                        <strong>Segment ${i + 1}:</strong> Node ${i + 1} → Node ${i + 2}<br>
+                        <span style="color: #FF1744; font-weight: bold;">⚠️ Congested (${(congestion * 100).toFixed(0)}%)</span><br>
+                        <div style="color: #FF6F00; margin-top: 8px;">
+                            ⏸️ No alternative route - waiting for traffic to clear
+                        </div>
+                    `;
+                }
+
+            } else {
+                // ROUTE IS CLEAR
+                console.log(`✅ Route clear - using direct path`);
+                
+                // Draw CLEAR route in GREEN
+                let line = L.polyline(directRoute.coordinates, {
+                    color: '#4CAF50',
+                    weight: 10,
+                    opacity: 0.9,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(map);
+                
+                line.bindPopup(`
+                    <div style="padding: 8px;">
+                        <strong style="color: #4CAF50; font-size: 16px;">✅ CLEAR ROUTE</strong><br>
+                        <strong>Segment ${i + 1}</strong> (USED THIS PATH)<br>
+                        Traffic: <span style="color: #4CAF50; font-weight: bold;">${(congestion * 100).toFixed(0)}%</span><br>
+                        Distance: ${(directRoute.distance / 1000).toFixed(2)} km<br>
+                        Duration: ${(directRoute.duration / 60).toFixed(1)} min
+                    </div>
+                `);
+                allLines.push(line);
+
+                document.getElementById(`segment-${i}`).className = 'segment-status status-clear';
+                document.getElementById(`segment-${i}`).innerHTML = `
+                    <strong>Segment ${i + 1}:</strong> Node ${i + 1} → Node ${i + 2}<br>
+                    <span style="color: #4CAF50; font-weight: bold;">✓ Clear (${(congestion * 100).toFixed(0)}%)</span><br>
+                    <div class="route-path-indicator" style="background: #4CAF50; color: white; margin-top: 6px;">
+                        ✓ DIRECT ROUTE
+                    </div><br>
+                    <small style="color: #666;">
+                        ${(directRoute.distance / 1000).toFixed(2)} km, ${(directRoute.duration / 60).toFixed(1)} min
+                    </small>
+                `;
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 1800));
+        }
+
+        routeDetails += `<div style="margin-top: 15px; padding: 14px; background: #4CAF50; color: white; border-radius: 6px; text-align: center; font-weight: bold; font-size: 15px;">
+            ✅ SIMULATION COMPLETE
+        </div>`;
+        document.getElementById('routeDetails').innerHTML = routeDetails;
+
+        console.log('\n' + '='.repeat(70));
+        console.log('✅ SIMULATION COMPLETE');
+        console.log('='.repeat(70));
+    }
+
+    function resetMap() {
+        markers.forEach(m => map.removeLayer(m));
+        allLines.forEach(l => map.removeLayer(l));
+        markers = [];
+        nodes = [];
+        allLines = [];
+        document.getElementById('routeInfo').style.display = 'none';
+        document.getElementById('routeDetails').innerHTML = '';
+    }
+
+    document.getElementById("startBtn").onclick = runSimulation;
+    document.getElementById("resetBtn").onclick = resetMap;
+};
+</script>
+
+</body>
+</html>
