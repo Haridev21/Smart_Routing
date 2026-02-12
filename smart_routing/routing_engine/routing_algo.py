@@ -1,7 +1,7 @@
 # routing_algo.py
 
 import heapq
-#from city_graph import graph
+
 from routing_engine.city_graph import graph
 
 def predict_congestion_stub(cars_on_edge):
