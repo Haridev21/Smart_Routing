@@ -10,6 +10,6 @@ graph = {
     "F": {}
 }
 
-# Function to get neighbors
+
 def get_neighbors(node):
     return graph.get(node, {})
