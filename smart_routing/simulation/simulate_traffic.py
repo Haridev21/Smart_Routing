@@ -10,7 +10,7 @@ from routing_engine.city_graph import graph
 # -----------------------------
 # Setup visualization window
 # -----------------------------
-plt.ion()  # interactive mode ON
+plt.ion()  
 plt.figure(figsize=(8, 6))
 
 # -----------------------------
@@ -22,10 +22,10 @@ cars = [
     {"id": 3, "start": "A", "end": "E", "current": "A", "current_path": []}
 ]
 
-# Track congestion
+
 cars_on_edges = {(u, v): 0 for u in graph for v in graph[u]}
 
-# Assign initial routes
+
 for car in cars:
     path, cost = compute_shortest_path(car["current"], car["end"], cars_on_edges)
     car["current_path"] = path
@@ -46,7 +46,7 @@ def plot_city(cars):
 
     nx.draw(G, pos, with_labels=True, node_size=700)
 
-    # Draw cars
+  
     for car in cars:
         node = car["current"]
         x, y = pos[node]
@@ -65,7 +65,7 @@ print("Starting simulation...\n")
 for t in range(steps):
     print("Time step:", t)
 
-    # Move cars
+  
     for car in cars:
         path = car["current_path"]
 
@@ -76,11 +76,11 @@ for t in range(steps):
             car["current"] = path[1]
             car["current_path"] = path[1:]
 
-    # Print status
+   
     for car in cars:
         print("Car", car["id"], "at", car["current"], "| Path:", car["current_path"])
 
-    # Rerouting logic
+   
     for car in cars:
         if len(car["current_path"]) > 1:
             edge = (car["current_path"][0], car["current_path"][1])
@@ -89,12 +89,12 @@ for t in range(steps):
                 dynamic_reroute(car, cars_on_edges)
                 print("Car", car["id"], "rerouted →", car["current_path"])
 
-    # Reduce congestion
+    
     for edge in cars_on_edges:
         if cars_on_edges[edge] > 0:
             cars_on_edges[edge] -= 1
 
-    # Draw animation
+   
     plot_city(cars)
 
 print("\nSimulation finished.")
